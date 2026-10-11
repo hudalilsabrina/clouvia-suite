@@ -109,7 +109,7 @@ async def create_account(log_fn=print, proxy: str = None, do_claim: bool = True)
         try:
             log_fn("[2/6] buka /register...")
             await page.goto(REGISTER, wait_until="domcontentloaded", timeout=45000)
-            await page.wait_for_timeout(random.randint(3000, 5000))
+            await page.wait_for_timeout(random.randint(2000, 3000))
 
             # CSRF cookie
             try:
@@ -119,6 +119,15 @@ async def create_account(log_fn=print, proxy: str = None, do_claim: bool = True)
                 await page.wait_for_timeout(800)
             except Exception:
                 pass
+
+            # OPTIMASI: solve token Turnstile untuk register DAN login sekaligus
+            # (paralel). Token bisa dipakai kapan saja -> hemat ~19s/akun.
+            t0 = time.time()
+            tok_reg, tok_login = await asyncio.gather(
+                asyncio.to_thread(solve_turnstile, SITEKEY, 120, False, REGISTER),
+                asyncio.to_thread(solve_turnstile, SITEKEY, 120, False, LOGIN),
+            )
+            log_fn(f"[3/6] 2 token Turnstile (paralel) dalam {round(time.time()-t0,1)}s")
 
             # isi form (label-based; input tidak punya name)
             log_fn("[3/6] isi form...")
@@ -145,19 +154,14 @@ async def create_account(log_fn=print, proxy: str = None, do_claim: bool = True)
             }""")
             await page.wait_for_timeout(random.randint(600, 1200))
 
-            # Turnstile: solve + inject
-            log_fn("[4/6] solve Turnstile...")
-            tok = ""
-            for _ in range(5):
-                tok = await page.evaluate("() => (document.querySelector('[name=cf-turnstile-response]')||{}).value || ''")
-                if tok:
-                    break
-                await page.wait_for_timeout(2000)
+            # Turnstile: pakai token yang sudah di-solve di awal
+            log_fn("[4/6] inject Turnstile...")
+            tok = tok_reg
             if not tok:
                 tok = solve_turnstile(SITEKEY, url=REGISTER) or ""
-                if tok:
-                    inject_turnstile(page, tok)
-                    await page.wait_for_timeout(2500)
+            if tok:
+                inject_turnstile(page, tok)
+                await page.wait_for_timeout(1500)
             log_fn(f"    token: {len(tok or '')} char")
             if not tok:
                 return {"error": "no_turnstile", "proxy": proxy}
@@ -206,26 +210,20 @@ async def create_account(log_fn=print, proxy: str = None, do_claim: bool = True)
             # login -> konsol -> klaim kredit gratis + API key
             log_fn("[6/6] login, klaim kredit, ambil API key...")
             await page.goto(LOGIN, wait_until="domcontentloaded", timeout=40000)
-            await page.wait_for_timeout(3000)
+            await page.wait_for_timeout(2000)
             lin = await page.evaluate("""() => [...document.querySelectorAll('input')].map((i,idx)=>({idx,t:i.type}))""")
             le = [i for i in lin if i["t"] == "email"]
             lp = [i for i in lin if i["t"] == "password"]
             if le and lp:
                 await _type(page, f'idx:{le[0]["idx"]}', email)
                 await _type(page, f'idx:{lp[0]["idx"]}', password)
-                # turnstile login
-                lt = ""
-                for _ in range(4):
-                    lt = await page.evaluate("() => (document.querySelector('[name=cf-turnstile-response]')||{}).value || ''")
-                    if lt:
-                        break
-                    await page.wait_for_timeout(1500)
+                # turnstile login: pakai token yang sudah di-solve paralel
+                lt = tok_login
                 if not lt:
                     lt = solve_turnstile(SITEKEY, url=LOGIN) or ""
-                    if lt:
-                        inject_turnstile(page, lt)
-                        await page.wait_for_timeout(2000)
-                await page.wait_for_timeout(1500)
+                if lt:
+                    inject_turnstile(page, lt)
+                    await page.wait_for_timeout(1000)
                 await page.evaluate("""async ([email, pwd, tok]) => {
                     const c = document.cookie.split('; ').find(x=>x.startsWith('clv_csrf='));
                     const csrf = c ? decodeURIComponent(c.slice(9)) : '';
@@ -239,7 +237,7 @@ async def create_account(log_fn=print, proxy: str = None, do_claim: bool = True)
                 await page.wait_for_timeout(4000)
 
             await page.goto(f"{BASE}/app", wait_until="domcontentloaded", timeout=45000)
-            await page.wait_for_timeout(5000)
+            await page.wait_for_timeout(3000)
 
             # klaim kredit gratis: 5M token starter (+50M promo) per akun baru
             if do_claim:

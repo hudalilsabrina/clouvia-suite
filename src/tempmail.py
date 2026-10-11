@@ -57,21 +57,30 @@ class TempikClient:
             return self._domains
 
         self.init_session()
-        url = f"{self.base_url}/domains"
-        req = urllib.request.Request(url, method="GET")
-        req.add_header("Accept", "application/json")
-        req.add_header("User-Agent", _BROWSER_UA)
-        if self.session_id:
-            req.add_header("x-session-id", self.session_id)
-
-        try:
-            with urllib.request.urlopen(req, timeout=15) as resp:
-                data = json.loads(resp.read().decode())
-                domains = [d.get("name", d) if isinstance(d, dict) else str(d) for d in data.get("domains", data if isinstance(data, list) else [])]
-                self._domains = [d for d in domains if d]
-                return self._domains
-        except Exception:
-            return ["example.com"]
+        # tempik menyediakan domain di /config (bukan /domains)
+        for path in ("/config", "/domains"):
+            req = urllib.request.Request(f"{self.base_url}{path}", method="GET")
+            req.add_header("Accept", "application/json")
+            req.add_header("User-Agent", _BROWSER_UA)
+            if self.session_id:
+                req.add_header("x-session-id", self.session_id)
+            try:
+                with urllib.request.urlopen(req, timeout=15) as resp:
+                    data = json.loads(resp.read().decode())
+            except Exception:
+                continue
+            raw = []
+            if isinstance(data, dict):
+                raw = (data.get("mailDomains") or data.get("domains")
+                       or ([data["mailDomain"]] if data.get("mailDomain") else []))
+            elif isinstance(data, list):
+                raw = data
+            domains = [d.get("name", d) if isinstance(d, dict) else str(d) for d in raw]
+            domains = [d for d in domains if d]
+            if domains:
+                self._domains = domains
+                return domains
+        return ["example.com"]
 
     def create_inbox(self, local_part: str = None, domain: str = None) -> str:
         """Create a new inbox. Returns email address."""
