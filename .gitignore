@@ -1,0 +1,9 @@
+accounts.txt
+config.toml
+proxies.txt
+data/
+*.log
+.venv/
+.venv-camo/
+__pycache__/
+*.pyc

@@ -1,0 +1,7 @@
+# Clouvia Router suite
+#   python -m pip install -r requirements.txt
+#   python -m patchright install chromium
+#   python -m camoufox fetch
+patchright>=1.50
+camoufox[geoip]>=0.4
+requests>=2.31

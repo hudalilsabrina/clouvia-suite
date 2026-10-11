@@ -1,0 +1,6 @@
+# Clouvia Router suite - contoh konfigurasi
+[api]
+tempmail_base = "https://<host-tempik-anda>/api"   # API kompatibel tempik
+
+[general]
+headless = false
